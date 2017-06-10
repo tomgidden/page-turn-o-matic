@@ -1,14 +1,4 @@
-// Rewritten, trying to reduce power usage.
-// However, have started to get:
-//     NRF ERROR 0x8 at ?:0
-//     REBOOTING.
-// even after green light reset (no boot code) and E.setBootCode();
-// the code is subsequently uploaded and it crashes during the save().
-//
-// Could be power, maybe?
-// If not, thinking about clip-leading in Serial.
-
-
+// Seems to work a bit better now.
 
 var hid = require("ble_hid_keyboard");
 
@@ -26,13 +16,12 @@ var clearclick_timeout;
 // interfere with attempts to connect to it via the IDE.  Saying that,
 // a triple click will postpone the sleep.
 var sleep_timeout;
-const sleep_delay = 15000; // 30 seconds
+const sleep_delay = 300000; // 5 minutes
 const sleep_longdelay = 60*60*1000; // 1 hour
 
 var is_connected = false;
 
 const ble_name = "Page-Turn-o-Matic 4000";
-const enable_lpc = false;
 
 function schedule_sleep(delay) {
 
@@ -44,16 +33,46 @@ function schedule_sleep(delay) {
   sleep_timeout = setTimeout(sleep, delay ? delay : sleep_delay);
 }
 
+
+function on_connect() {
+  flash('00ff7f');
+  is_connected = true;
+}
+
+var post_disconnect = false;
+
+function on_disconnect() {
+  flash('ff007f');
+  is_connected = false;
+
+  if (post_disconnect) {
+    post_disconnect();
+  }
+}
+
+function ble_sleep() {
+  post_disconnect = function () {
+    post_disconnect = false;
+    NRF.sleep();
+  };
+
+  NRF.disconnect();
+}
+
+function ble_wake() {
+  NRF.wake();
+}
+
 function sleep() {
 
   // Flicker the LED to indicate sleep.  This is really for debugging
-  flash('3f3f3f');
+  flash('ff3f00');
 
   // Clear the timeout
   sleep_timeout = undefined;
 
   // Disconnect any running HID sessions -- problematic; doesn't reconnect well.
-  NRF.disconnect();
+  ble_sleep();
 }
 
 led.led_timeout = undefined;
@@ -88,27 +107,21 @@ function tertiary() {
 
   schedule_sleep(sleep_longdelay);
 
-  // Switch Bluetooth back to normal
-  if (enable_lpc) NRF.setLowPowerConnection(false);
-
-  // And disconnect
   NRF.disconnect();
 }
 
-// The reset function, on a long click (>2s)
 function longclick() {
   flash('7fff00');
   clickcount = 0;
-  if (enable_lpc) NRF.setLowPowerConnection(false);
-  NRF.disconnect();
-  NRF.restart();
-  reset();
+  ble_sleep();
 }
 
 
 
 function btnPressed() {
 
+  ble_wake();
+  
   // Count clicks in chain
   clickcount ++;
 
@@ -190,31 +203,16 @@ function btnReleased() {
   }
 }
 
-function on_connect() {
-  flash('00ff7f');
-  is_connected = true;
-}
-
-function on_disconnect() {
-  flash('ff007f');
-  is_connected = false;
-}
 
 // Upon reset of the device
 function init() {
 
-  // Start connection monitor for is_connected flag
-  NRF.removeAllListeners();
-
   NRF.on('connect', on_connect);
   NRF.on('disconnect', on_disconnect);
 
-  NRF.setAdvertising( {}, { name: ble_name, discoverable: true } );
+  NRF.disconnect();
+  NRF.setAdvertising( {}, { name: ble_name } );
   NRF.setServices(undefined, { hid : hid.report });
-
-  // Modifies the connection interval so next time it connects it's only
-  // polling twice a second rather than ~50 times a second
-  if (enable_lpc) NRF.setLowPowerConnection(true);
 
   // Set up button event handlers for both rising and falling.  These will
   // also take it out of sleepage.
@@ -225,6 +223,5 @@ function init() {
 
 // Set the initialisation function
 E.on('init', init);
-
 
 setTimeout(save, 1500);
