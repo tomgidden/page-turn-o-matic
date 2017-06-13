@@ -1,4 +1,4 @@
-// Seems to work a bit better now.
+// Better power management. Seems okay, and disconnects (more) neatly.
 
 var hid = require("ble_hid_keyboard");
 
