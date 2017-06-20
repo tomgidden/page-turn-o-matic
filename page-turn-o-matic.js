@@ -70,7 +70,7 @@ function set_sleep_timeout() {
   sleep_timeout = setTimeout(function () {
     clear_sleep_timeout();
     NRF.disconnect();
-  }, 1000*60*2);
+  }, 1000*60*5);
 }
 
 function clear_sleep_timeout() {
@@ -150,6 +150,8 @@ function init () {
   btn.on('double', on_double);
   btn.on('triple', on_triple);
   btn.on('quadruple', on_quadruple);
+  
+  console.log("Note: to activate, either disconnect manually, or NRF.disconnect();"); 
 }
 
 E.on('init', init);
