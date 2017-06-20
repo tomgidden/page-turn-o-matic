@@ -6,6 +6,8 @@ var ad_values = {};
 var ad_options = { name: "Page-Turn-o-Matic 4000" };
 
 
+var sleep_timeout;
+
 
 // Object to handle multiple-clicking and long-clicking on
 // a button, using EventEmitter.
@@ -48,67 +50,90 @@ function Btn(btn) {
 
 var btn;
 
+function blinken (colour, count)
+{
+  digitalWrite([LED1,LED2,LED3], colour);
+  setTimeout(function(){
+    digitalWrite([LED1,LED2,LED3], 0);
+    if (count > 0)
+      setTimeout(function () {
+        flash(colour, --count);
+      }, 25);
+  }, 25);
+}
 
+function set_sleep_timeout() {
+  if (sleep_timeout)
+    clearTimeout(sleep_timeout);
 
+  sleep_timeout = setTimeout(function () {
+    clear_sleep_timeout();
+    NRF.disconnect();
+  }, 1000*60*2);
+}
 
+function clear_sleep_timeout() {
+  if (sleep_timeout) {
+    clearTimeout(sleep_timeout);
+    sleep_timeout = undefined;
+  }
+}
 
 // Connection tracking
 
 function on_connect () {
-  digitalPulse(LED3, true, 100);
+  blinken(0b011);
   is_connected = true;
 }
 
 function on_disconnect() {
-  digitalPulse(LED1, true, 100);
+  clear_sleep_timeout();
+  blinken(0b101);
   is_connected = false;
-  NRF.sleep();
+  NRF.sleep(); // Prevent reconnection until manually woken
 }
 
 
 // Button click events
 
-function click (c) {
+function on_click (c) {
+  set_sleep_timeout();
+  
   if (is_connected) {
-    digitalPulse(LED2, true, 25);
+    // Single flash - move right
+    blinken(0b010, 1);
     hid.tap(hid.KEY.RIGHT, 0);
   }
   else {
     NRF.wake();
-    digitalPulse(LED1, true, 100);
+    blinken(0b001);
   }
 }
 
-function double (c) {
+function on_double (c) {
+  set_sleep_timeout();
+  
   if (is_connected) {
-    digitalPulse(LED2, true, 25);
-    setTimeout(function(){digitalPulse(LED2, true, 25);},100);
+    // Double flash - move left
+    blinken(0b010, 2);
     hid.tap(hid.KEY.LEFT, 0);
   }
   else {
     NRF.wake();
-    digitalPulse(LED1, true, 100);
+    blinken(0b001);
   }
 }
 
-function triple (c) {
+function on_triple (c) {
   NRF.disconnect(); // on('disconnect') causes NRF.sleep
-  digitalWrite([LED2,LED3], 0b11);
-  setTimeout(function(){digitalWrite([LED2,LED3],0);},25);
 }
 
-function quadruple (c) {
-  digitalPulse(LED3, true, 25);
-  digitalPulse(LED2, true, 25);
-  digitalPulse(LED1, true, 25);
+function on_quadruple (c) {
+  blinken(0b110);
   NRF.wake();
 }
 
 
-function update_advert() {
-//  ad_values[0x180F] = [Math.round(Puck.getBatteryPercentage())];
-  NRF.setAdvertising(ad_values, ad_options);
-}
 
 // Initialisation
 
@@ -116,14 +141,14 @@ function init () {
   NRF.on('connect', on_connect);
   NRF.on('disconnect', on_disconnect);
 
-  update_advert();
+  NRF.setAdvertising({}, ad_options);
   NRF.setServices(undefined, { hid : hid.report });
 
   btn = new Btn(BTN);
-  btn.on('click', click);
-  btn.on('double', double);
-  btn.on('triple', triple);
-  btn.on('quadruple', quadruple);
+  btn.on('click', on_click);
+  btn.on('double', on_double);
+  btn.on('triple', on_triple);
+  btn.on('quadruple', on_quadruple);
 }
 
 E.on('init', init);
