@@ -55,10 +55,11 @@ function blinken (colour, count)
   digitalWrite([LED1,LED2,LED3], colour);
   setTimeout(function(){
     digitalWrite([LED1,LED2,LED3], 0);
-    if (count > 0)
+    if (count > 1) {
       setTimeout(function () {
-        flash(colour, --count);
-      }, 25);
+        blinken(colour, --count);
+      }, 50);
+    }
   }, 25);
 }
 
