@@ -150,8 +150,6 @@ function init () {
   btn.on('double', on_double);
   btn.on('triple', on_triple);
   btn.on('quadruple', on_quadruple);
-  
-  console.log("Note: to activate, either disconnect manually, or NRF.disconnect();"); 
 }
 
 E.on('init', init);
