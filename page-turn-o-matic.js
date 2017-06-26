@@ -91,7 +91,11 @@ function on_disconnect() {
   clear_sleep_timeout();
   blinken(0b101);
   is_connected = false;
-  NRF.sleep(); // Prevent reconnection until manually woken
+  
+  // Delay sleep slightly to work around problem: http://forum.espruino.com/comments/13708515/
+  setTimeout(function () {
+    NRF.sleep(); // Prevent reconnection until manually woken
+  }, 250);
 }
 
 
