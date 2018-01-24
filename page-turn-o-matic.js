@@ -1,143 +1,224 @@
 var hid = require("ble_hid_keyboard");
 
-var long_click = 2000;  // 2 seconds
-var double_click = 250; // 0.25 second
-
 // Detect short press ( < 2 seconds)
-var short = false;
+var is_short = false;
 var short_timeout = false;
 
 // Detect fast-click count ( < 0.25 seconds)
 var clickcount = 0;
 var clearclick_timeout;
 
-// Reset
-function init() {
-  // Clear any current button event handlers
-  clearWatch();
-  
-  // Set up HID (keyboard) services
-  NRF.setServices(undefined, { hid : hid.report });
-  
-  // Name it
-  NRF.setAdvertising({},{name:"Page-Turn-O-Matic 4000™"});
-  
-  // Set up button event handlers for both rising and falling
-  setWatch(btnPressed, BTN, { repeat:true, edge:'rising', debounce : 50 });
-  setWatch(btnReleased, BTN, { repeat:true, edge:'falling', debounce : 50 });
+// Sleep when not in use.
+var sleep_timeout;
+
+// Track whether there's a live connection: don't want to send HID reports when not connected
+var is_connected = false;
+
+// Track NRF.sleep/NRF.wake state: don't want to setAdvertising, etc. when NRF not active
+var is_ble_sleeping = false;
+
+// BLE advertisements
+var ad_values = {};
+var ad_options = { name: "Page-Turn-o-Matic 4000" };
+
+
+// r,g,b:  true=lit, false=unlit, null=preserve
+// d: duration in ms
+// c: multiple pulses (default: 1)
+function flash_leds (r,g,b,d,c) {
+  if (!c) c = 1;
+  if (null !== r) digitalWrite(LED1, r);
+  if (null !== g) digitalWrite(LED2, g);
+  if (null !== b) digitalWrite(LED3, b);
+  setTimeout(function () {
+    if (null !== r) digitalWrite(LED1, 0);
+    if (null !== g) digitalWrite(LED2, 0);
+    if (null !== b) digitalWrite(LED3, 0);
+    c--;
+    if (c > 0) flash_leds(r,g,b,d,c);
+  }, d);
 }
 
-// The primary action, on a single click
-function primary() {
-  hid.tap(hid.KEY.RIGHT, 0);
+
+// Activate NRF.sleep in 5 minutes (or an hour) unless timeout is restarted.
+function reset_sleep_timer (long_delay) {
+
+  if (undefined !== sleep_timeout)
+    clearTimeout(sleep_timeout);
+
+  sleep_timeout = setTimeout(function () {
+    sleep_timeout = undefined;
+    flash(true, null, null, 25);
+    ble_sleep();
+  }, long_delay ? 3600000 : 300000);
 }
 
-// The secondary action, on a double click
-function secondary() {
-  hid.tap(hid.KEY.LEFT, 0);
-}
-
-// The reset function, on a long click (>2s)
-function long() {
+function ble_sleep() {
   NRF.disconnect();
-  init();
+  stop_update_bluetooth();
+  is_ble_sleeping = true;
+  NRF.sleep();
 }
 
-function btnPressed() {
+function ble_wake() {
+  if (!is_connected) {
+    flash_leds(null, true, null, 25);
+    NRF.wake();
+    is_ble_sleeping = false;
+    start_update_bluetooth();
+  }
+}
 
-  // When the button's pressed, we clear the LEDs. Any
-  // LED activity is on _release_
-  digitalWrite([LED1,LED2,LED3], 0);
 
-  // Count clicks in chain
+
+
+function primary() {
+  if (is_connected) {
+    flash_leds(false, true, false, 25, 1);
+    hid.tap(hid.KEY.RIGHT, 0);
+  }
+  else
+    flash_leds(true, false, false, 500);
+}
+
+function secondary() {
+  if (is_connected) {
+    flash_leds(false, true, false, 25, 2);
+    hid.tap(hid.KEY.LEFT, 0);
+  }
+  else
+    flash_leds(true, false, false, 500);
+}
+
+function tertiary() {
+  if (!is_ble_sleeping)
+    ble_sleep();
+  else
+    flash_leds(false, false, true, 500);
+}
+
+function longclick() {
+  clickcount = 0;
+  if (is_connected) {
+    flash_leds(false, true, false, 500);
+    NRF.disconnect();
+  }
+  reset_sleep_timer(true);
+}
+
+function btn_pressed() {
+
+  ble_wake();
+
+  // Multi-click in quick succession.
   clickcount ++;
 
-  // Reset execution of short-click chain
   if (undefined !== clearclick_timeout) {
     clearTimeout(clearclick_timeout);
     clearclick_timeout = undefined;
   }
-  
-  // Assume it's a short press
-  short = true; 
 
-  // Set a timeout for two seconds to recognise a long press
+  // Long press detection
+  is_short = true;
   short_timeout = setTimeout(function () {
-    // It's been two seconds, so...
-    
-    // Long press detected
-    short = false;
+    is_short = false;
     short_timeout = null;
-    
-    // Full blast RGB
-    digitalWrite([LED1,LED2,LED3], 0x111);
-    
-    // and don't do anything until release...
-    
-  }, long_click);
+  }, 2000);
 }
 
-// Once a chain of repeated rapid clicks is over (ie.
-// the 0.25 second threshold has passed)...
-function chainEnded() {
-  var o = clickcount;
-  clickcount = 0;
-  clearclick_timeout = undefined;
+function btn_released() {
 
-  switch (o) {
-  case 1:
-    // Simple click;  GREEN
-    digitalWrite([LED1,LED2,LED3], 0b010);
-    primary();
-    break;
-
-  case 2:
-    // Double-click;  RED
-    digitalWrite([LED1,LED2,LED3], 0b100);
-    secondary();
-    break;
-
-      
-  // Triple-click, etc. can be added as additional
-  // `case`s.
-      
-  default:
-    // Too many clicks. Ignore.
-    break;
-  }
-}
-
-function btnReleased() {
-  
-  // `short_timeout` is there to _deny_ a short
-  // click.  If it times out, then it means the button
-  // has been held longer than a short click.
-  //
-  // So, for a short click, if the timeout is still going
-  // then clear it:  `short` should remain whatever it is,
-  // including `true`.
   if (short_timeout) {
     clearTimeout(short_timeout);
     short_timeout = null;
   }
-  
-  if (short) {
-    // Set a timeout to process short clicks
-    clearclick_timeout = setTimeout(chainEnded, 250);
+
+  if (is_short) {
+    clearclick_timeout = setTimeout(chain_ended, 350);
   }
   else {
-    // Long press: reset
-    digitalWrite([LED1,LED2,LED3], 0x001);
     clearclick_timeout = undefined;
-    long();
+    longclick();
   }
-  
-  // And clear any LEDs after a reasonable period.
-  setTimeout(function () {
-    digitalWrite([LED1,LED2,LED3], 0);
-  }, double_click);
 }
 
-// Set the initialisation function
+function chain_ended() {
+  var o = clickcount;
+  clickcount = 0;
+  clearclick_timeout = undefined;
+
+  reset_sleep_timer();
+
+  switch (o) {
+  case 1: primary();   break;
+  case 2: secondary(); break;
+  case 3: tertiary();  break;
+  default: break;
+  }
+}
+
+
+
+// BLE advertisement
+//
+// Interval-based updates (in addition to BLE standard advert
+// updates) to revise the battery charge level
+var update_bluetooth_interval;
+
+function start_update_bluetooth() {
+  var f = function () {
+      if (!is_ble_sleeping) { // Only update is BLE is active
+        ad_values[0x180F] = Math.round(Puck.getBatteryPercentage());
+        NRF.setAdvertising(ad_values, ad_options);
+        NRF.setServices(undefined, { hid : hid.report });
+      }
+  };
+
+  if (update_bluetooth_interval)
+    clearInterval(update_bluetooth_interval);
+  update_bluetooth_interval = setInterval(f, 300000);
+
+  f();
+}
+
+function stop_update_bluetooth() {
+  if (update_bluetooth_interval) {
+    clearInterval(update_bluetooth_interval);
+    update_bluetooth_interval = undefined;
+  }
+}
+
+
+
+// Connection tracking
+function on_connect () {
+  flash_leds(false, true, true, 100);
+  is_connected = true;
+}
+
+function on_disconnect() {
+  flash_leds(true, false, false, 100);
+  is_connected = false;
+}
+
+
+function init () {
+  NRF.on('connect', on_connect);
+  NRF.on('disconnect', on_disconnect);
+
+  clearWatch();
+  clearInterval();
+  clearTimeout();
+
+  setTimeout(function () {
+    setWatch(btn_pressed, BTN, { repeat:true, edge:'rising', debounce : 50 });
+    setWatch(btn_released, BTN, { repeat:true, edge:'falling', debounce : 50 });
+
+    NRF.disconnect(); // To make BLE changes occur
+    start_update_bluetooth();
+  }, 3000);
+}
+
 E.on('init', init);
+
 
