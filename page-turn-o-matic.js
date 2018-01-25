@@ -15,11 +15,11 @@ var sleep_timeout;
 var is_connected = false;
 
 // Track NRF.sleep/NRF.wake state: don't want to setAdvertising, etc. when NRF not active
-var is_ble_sleeping = false;
+var is_ble_sleeping = true;
 
 // BLE advertisements
 var ad_values = {};
-var ad_options = { name: "Page-Turn-o-Matic 4000" };
+var ad_options = { 'name': "Page-Turn-o-Matic 4000" };
 
 
 // r,g,b:  true=lit, false=unlit, null=preserve
@@ -39,7 +39,6 @@ function flash_leds (r,g,b,d,c) {
   }, d);
 }
 
-
 // Activate NRF.sleep in 5 minutes (or an hour) unless timeout is restarted.
 function reset_sleep_timer (long_delay) {
 
@@ -49,73 +48,55 @@ function reset_sleep_timer (long_delay) {
   sleep_timeout = setTimeout(function () {
     sleep_timeout = undefined;
     flash(true, null, null, 25);
-    ble_sleep();
+    if (!is_ble_sleeping) ble_toggle();
   }, long_delay ? 3600000 : 300000);
 }
 
-function ble_sleep() {
-  NRF.disconnect();
-  stop_update_bluetooth();
-  is_ble_sleeping = true;
-  NRF.sleep();
-}
-
-function ble_wake() {
-  if (!is_connected) {
-    flash_leds(null, true, null, 25);
-    NRF.wake();
-    is_ble_sleeping = false;
-    start_update_bluetooth();
-  }
-}
-
-
-
-
 function primary() {
-  if (is_connected) {
-    flash_leds(false, true, false, 25, 1);
-    hid.tap(hid.KEY.RIGHT, 0);
-  }
-  else
-    flash_leds(true, false, false, 500);
+  flash_leds(false, true, false, 25, 1);
+  hid.tap(hid.KEY.RIGHT, 0);
 }
 
 function secondary() {
-  if (is_connected) {
-    flash_leds(false, true, false, 25, 2);
-    hid.tap(hid.KEY.LEFT, 0);
-  }
-  else
-    flash_leds(true, false, false, 500);
+  flash_leds(false, true, false, 25, 2);
+  hid.tap(hid.KEY.LEFT, 0);
 }
 
 function tertiary() {
-  if (!is_ble_sleeping)
-    ble_sleep();
-  else
-    flash_leds(false, false, true, 500);
+  // NOP
 }
 
 function longclick() {
   clickcount = 0;
-  if (is_connected) {
-    flash_leds(false, true, false, 500);
-    NRF.disconnect();
+  ble_toggle(true);
+}
+
+function ble_toggle(force) {
+  if (undefined !== force) {
+    is_ble_sleeping = force;
   }
-  reset_sleep_timer(true);
+
+  is_ble_sleeping = !is_ble_sleeping;
+  if (is_ble_sleeping) {
+    is_connected = false;
+    NRF.sleep();
+    flash_leds(true, false, false, 500);
+  }
+  else {
+    NRF.wake();
+    flash_leds(false, false, true, 500);
+  }
 }
 
 function btn_released() {
-  reset();
+  ble_toggle();
 }
 
 function btn_pressed() {
+  // NOP
 }
 
 function sw_pressed() {
-
-  ble_wake();
 
   // Multi-click in quick succession.
   clickcount ++;
@@ -154,8 +135,19 @@ function chain_ended() {
   clickcount = 0;
   clearclick_timeout = undefined;
 
-  reset_sleep_timer();
+  reset_sleep_timer(true);
 
+  //if (is_ble_sleeping) {
+  //    flash_leds(true, true, true, 50);
+  //  ble_toggle();
+  //    return;
+  //  }
+
+  if (!is_connected) {
+    flash_leds(true, false, false, 50);
+    return;
+  }
+  
   switch (o) {
   case 1: primary();   break;
   case 2: secondary(); break;
@@ -163,8 +155,6 @@ function chain_ended() {
   default: break;
   }
 }
-
-
 
 // BLE advertisement
 //
@@ -174,16 +164,14 @@ var update_bluetooth_interval;
 
 function start_update_bluetooth() {
   var f = function () {
-      if (!is_ble_sleeping) { // Only update is BLE is active
-        ad_values[0x180F] = Math.round(Puck.getBatteryPercentage());
-        NRF.setAdvertising(ad_values, ad_options);
-        NRF.setServices(undefined, { hid : hid.report });
-      }
+    ad_values[0x180F] = Math.round(Puck.getBatteryPercentage());
+    NRF.setAdvertising(ad_values, ad_options);
   };
 
   if (update_bluetooth_interval)
     clearInterval(update_bluetooth_interval);
-  update_bluetooth_interval = setInterval(f, 300000);
+
+  update_bluetooth_interval = setInterval(f, 30000);
 
   f();
 }
@@ -196,15 +184,14 @@ function stop_update_bluetooth() {
 }
 
 
-
 // Connection tracking
 function on_connect () {
-  flash_leds(false, true, true, 100);
+  flash_leds(null, null, true, 10);
   is_connected = true;
 }
 
 function on_disconnect() {
-  flash_leds(true, false, false, 100);
+  flash_leds(true, true, null, 10);
   is_connected = false;
 }
 
@@ -225,7 +212,7 @@ function init () {
     setWatch(sw_pressed, D1, { repeat:true, edge:'rising', debounce : 50 });
     setWatch(sw_released, D1, { repeat:true, edge:'falling', debounce : 50 });
 
-    NRF.disconnect(); // To make BLE changes occur
+    NRF.setServices(undefined, { hid : hid.report });
     start_update_bluetooth();
   }, 3000);
 }
