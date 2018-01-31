@@ -53,22 +53,24 @@ function reset_sleep_timer (long_delay) {
 }
 
 function primary() {
-  flash_leds(false, true, false, 25, 1);
+  flash_leds(true, true, true, 10, 1);
   hid.tap(hid.KEY.RIGHT, 0);
 }
 
 function secondary() {
-  flash_leds(false, true, false, 25, 2);
+  flash_leds(true, true, true, 10, 2);
   hid.tap(hid.KEY.LEFT, 0);
 }
 
 function tertiary() {
   // NOP
+  flash_leds(true, true, true, 10, 3);
+  hid.tap(hid.KEY.ENTER, 0);
 }
 
 function longclick() {
   clickcount = 0;
-  ble_toggle(true);
+  ble_toggle();
 }
 
 function ble_toggle(force) {
@@ -84,7 +86,7 @@ function ble_toggle(force) {
   }
   else {
     NRF.wake();
-    flash_leds(false, false, true, 500);
+    flash_leds(false, true, false, 500);
   }
 }
 
